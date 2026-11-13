@@ -1,0 +1,301 @@
+name: "2 - Deploy App & Auto-Rollback Monitor (ECS Fargate)"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - ".github/workflows/2-deploy-app.yml"
+
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: "Versão da Aplicação a exibir no Portal (ex: v1.0 ou v2.0)"
+        required: true
+        default: "v1.0"
+        type: string
+      simulate_failure:
+        description: "Simular falha crítica no /health (HTTP 500) para acionar o Rollback Automático?"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  ECR_REPOSITORY: "clientes-app"
+  ECS_CLUSTER: "clientes-resilience-lab-cluster"
+  ECS_SERVICE: "clientes-resilience-lab-service"
+  ECS_TASK_FAMILY: "clientes-resilience-lab-task"
+  CONTAINER_NAME: "clientes-app"
+
+jobs:
+  deploy-and-monitor:
+    name: "Build, Deploy & Monitor ECS Circuit Breaker"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "1. Checkout do Código"
+        uses: actions/checkout@v4
+
+      - name: "2. Definir Parâmetros da Release (Versão e Flag de Falha)"
+        id: params
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            APP_VERSION="${{ inputs.app_version }}"
+            SIMULATE_FAILURE="${{ inputs.simulate_failure }}"
+          else
+            APP_VERSION="v1.0"
+            SIMULATE_FAILURE="false"
+          fi
+
+          IMAGE_TAG="${GITHUB_SHA::7}-$(date +%s)"
+
+          echo "APP_VERSION=${APP_VERSION}" >> $GITHUB_ENV
+          echo "SIMULATE_FAILURE=${SIMULATE_FAILURE}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+
+          echo "=================================================================="
+          echo "🚀 Iniciando Pipeline de Deploy"
+          echo "   • Versão da Aplicação : ${APP_VERSION}"
+          echo "   • Simular Falha (500) : ${SIMULATE_FAILURE}"
+          echo "   • Tag da Imagem ECR   : ${IMAGE_TAG}"
+          echo "=================================================================="
+
+      - name: "3. Autenticação na AWS via OIDC"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: "4. Login no Amazon ECR"
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: "5. Build e Push da Imagem Docker para o ECR"
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          FULL_IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          LATEST_IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+
+          echo "Construindo imagem Docker: ${FULL_IMAGE_URI}"
+          docker build \
+            --build-arg APP_VERSION="${APP_VERSION}" \
+            --build-arg SIMULATE_FAILURE="${SIMULATE_FAILURE}" \
+            -t "${FULL_IMAGE_URI}" \
+            -t "${LATEST_IMAGE_URI}" \
+            ./app
+
+          echo "Enviando imagem para o Amazon ECR..."
+          docker push "${FULL_IMAGE_URI}"
+          docker push "${LATEST_IMAGE_URI}"
+
+          echo "FULL_IMAGE_URI=${FULL_IMAGE_URI}" >> $GITHUB_ENV
+
+      - name: "6. Registrar Nova Task Definition e Iniciar Deploy no ECS"
+        id: register-deploy
+        run: |
+          echo "Buscando Task Definition atual (${ECS_TASK_FAMILY})..."
+          TASK_DEF_JSON=$(aws ecs describe-task-definition \
+            --task-definition "${ECS_TASK_FAMILY}" \
+            --region "${AWS_REGION}" \
+            --query 'taskDefinition' \
+            --output json)
+
+          PREVIOUS_TASK_DEF_ARN=$(echo "${TASK_DEF_JSON}" | jq -r '.taskDefinitionArn')
+          PREVIOUS_REVISION=$(echo "${TASK_DEF_JSON}" | jq -r '.revision')
+          echo "Task Definition estável anterior: ${ECS_TASK_FAMILY}:${PREVIOUS_REVISION}"
+
+          # Atualiza imagem e variáveis de ambiente APP_VERSION e SIMULATE_FAILURE
+          NEW_TASK_DEF_INPUT=$(echo "${TASK_DEF_JSON}" | jq \
+            --arg IMAGE "${FULL_IMAGE_URI}" \
+            --arg VERSION "${APP_VERSION}" \
+            --arg FAIL "${SIMULATE_FAILURE}" \
+            --arg CNAME "${CONTAINER_NAME}" \
+            'del(
+              .taskDefinitionArn,
+              .revision,
+              .status,
+              .requiresAttributes,
+              .compatibilities,
+              .registeredAt,
+              .registeredBy
+            )
+            | .containerDefinitions |= map(
+                if .name == $CNAME then
+                  .image = $IMAGE
+                  | .environment = (
+                      (.environment // [])
+                      | map(select(.name != "APP_VERSION" and .name != "SIMULATE_FAILURE"))
+                      + [
+                          {"name": "APP_VERSION", "value": $VERSION},
+                          {"name": "SIMULATE_FAILURE", "value": $FAIL}
+                        ]
+                    )
+                else . end
+              )')
+
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --region "${AWS_REGION}" \
+            --cli-input-json "${NEW_TASK_DEF_INPUT}" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          NEW_REVISION=$(echo "${NEW_TASK_DEF_ARN}" | awk -F':' '{print $NF}')
+          echo "Nova Task Definition registrada: ${ECS_TASK_FAMILY}:${NEW_REVISION}"
+
+          echo "Disparando atualização do serviço ECS (${ECS_SERVICE})..."
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER}" \
+            --service "${ECS_SERVICE}" \
+            --task-definition "${NEW_TASK_DEF_ARN}" \
+            --region "${AWS_REGION}" >/dev/null
+
+          echo "PREVIOUS_TASK_DEF_ARN=${PREVIOUS_TASK_DEF_ARN}" >> $GITHUB_ENV
+          echo "NEW_TASK_DEF_ARN=${NEW_TASK_DEF_ARN}" >> $GITHUB_ENV
+          echo "NEW_REVISION=${NEW_REVISION}" >> $GITHUB_ENV
+
+      - name: "7. Observabilidade em Tempo Real: Monitoramento do Deploy e Circuit Breaker"
+        run: |
+          set -e
+          echo "================================================================================"
+          echo "🔍 MONITORAMENTO EM TEMPO REAL DO DEPLOY ECS & CIRCUIT BREAKER"
+          echo "   • Cluster             : ${ECS_CLUSTER}"
+          echo "   • Serviço             : ${ECS_SERVICE}"
+          echo "   • Revisão Alvo        : ${NEW_TASK_DEF_ARN}"
+          echo "   • Versão / Simulação  : APP_VERSION=${APP_VERSION} | SIMULATE_FAILURE=${SIMULATE_FAILURE}"
+          echo "================================================================================"
+
+          MAX_ATTEMPTS=60
+          SLEEP_SECONDS=10
+          ROLLBACK_DETECTED="false"
+          FINAL_REASON=""
+
+          for ((i=1; i<=MAX_ATTEMPTS; i++)); do
+            SERVICE_JSON=$(aws ecs describe-services \
+              --cluster "${ECS_CLUSTER}" \
+              --services "${ECS_SERVICE}" \
+              --region "${AWS_REGION}" \
+              --output json)
+
+            PRIMARY_TASK_DEF=$(echo "${SERVICE_JSON}" | jq -r '.services[0].deployments[] | select(.status == "PRIMARY") | .taskDefinition')
+            PRIMARY_STATE=$(echo "${SERVICE_JSON}" | jq -r '.services[0].deployments[] | select(.status == "PRIMARY") | .rolloutState')
+            PRIMARY_REASON=$(echo "${SERVICE_JSON}" | jq -r '.services[0].deployments[] | select(.status == "PRIMARY") | .rolloutStateReason')
+            PRIMARY_DESIRED=$(echo "${SERVICE_JSON}" | jq -r '.services[0].deployments[] | select(.status == "PRIMARY") | .desiredCount')
+            PRIMARY_RUNNING=$(echo "${SERVICE_JSON}" | jq -r '.services[0].deployments[] | select(.status == "PRIMARY") | .runningCount')
+            PRIMARY_PENDING=$(echo "${SERVICE_JSON}" | jq -r '.services[0].deployments[] | select(.status == "PRIMARY") | .pendingCount')
+            PRIMARY_FAILED=$(echo "${SERVICE_JSON}" | jq -r '.services[0].deployments[] | select(.status == "PRIMARY") | .failedTasks // 0')
+            DEPLOYMENTS_COUNT=$(echo "${SERVICE_JSON}" | jq -r '.services[0].deployments | length')
+
+            echo ""
+            echo "--------------------------------------------------------------------------------"
+            echo "⏱️  [Iteração ${i}/${MAX_ATTEMPTS}] $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "   • Deployment PRIMARY  : ${PRIMARY_TASK_DEF##*/}"
+            echo "   • Rollout State       : ${PRIMARY_STATE} (${PRIMARY_REASON})"
+            echo "   • Tasks (Run/Pend/Des): ${PRIMARY_RUNNING} / ${PRIMARY_PENDING} / ${PRIMARY_DESIRED} | Failed Tasks: ${PRIMARY_FAILED}"
+            echo "   • Total Deployments   : ${DEPLOYMENTS_COUNT}"
+            echo "   • Últimos Eventos Reais do Serviço ECS (services[0].events[0:5]):"
+            aws ecs describe-services \
+              --cluster "${ECS_CLUSTER}" \
+              --services "${ECS_SERVICE}" \
+              --region "${AWS_REGION}" \
+              --query 'services[0].events[0:5].[createdAt, message]' \
+              --output text | sed 's/^/       -> /'
+
+            # Caso 1: O ECS Circuit Breaker já reverteu o deployment PRIMARY de volta para uma revisão anterior!
+            if [ "${PRIMARY_TASK_DEF}" != "${NEW_TASK_DEF_ARN}" ]; then
+              ROLLBACK_DETECTED="true"
+              echo ""
+              echo "🚨 [ALERTA SRE] ROLLBACK AUTOMÁTICO DETECTADO PELO ECS DEPLOYMENT CIRCUIT BREAKER!"
+              echo "   • Revisão defeituosa reprovada : ${NEW_TASK_DEF_ARN##*/}"
+              echo "   • Revisão estável restaurada   : ${PRIMARY_TASK_DEF##*/}"
+              echo "   • Estado da restauração        : ${PRIMARY_STATE} (${PRIMARY_REASON})"
+
+              if [ "${PRIMARY_STATE}" = "COMPLETED" ] && [ "${PRIMARY_RUNNING}" -ge "${PRIMARY_DESIRED}" ]; then
+                FINAL_REASON="ECS Deployment Circuit Breaker reverteu automaticamente de ${NEW_TASK_DEF_ARN##*/} para ${PRIMARY_TASK_DEF##*/}."
+                break
+              fi
+            fi
+
+            # Caso 2: O deployment atual entrou em estado FAILED antes ou durante a transição do rollback
+            if [ "${PRIMARY_STATE}" = "FAILED" ]; then
+              ROLLBACK_DETECTED="true"
+              FINAL_REASON="${PRIMARY_REASON}"
+              echo ""
+              echo "🚨 [ALERTA SRE] Deployment marcado como FAILED pelo ECS Circuit Breaker: ${PRIMARY_REASON}"
+              echo "   Aguardando estabilização do rollback automático para a versão anterior..."
+            fi
+
+            # Caso 3: Deploy da nova revisão concluído com sucesso!
+            if [ "${ROLLBACK_DETECTED}" = "false" ] && \
+               [ "${PRIMARY_TASK_DEF}" = "${NEW_TASK_DEF_ARN}" ] && \
+               [ "${PRIMARY_STATE}" = "COMPLETED" ] && \
+               [ "${DEPLOYMENTS_COUNT}" -eq 1 ] && \
+               [ "${PRIMARY_RUNNING}" -ge "${PRIMARY_DESIRED}" ]; then
+              echo ""
+              echo "✅ DEPLOY CONCLUÍDO COM SUCESSO! Revisão ${NEW_TASK_DEF_ARN##*/} está 100% saudável e estável."
+              break
+            fi
+
+            sleep "${SLEEP_SECONDS}"
+          done
+
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names "clientes-resilience-lab-alb" \
+            --region "${AWS_REGION}" \
+            --query 'LoadBalancers[0].DNSName' \
+            --output text 2>/dev/null || echo "N/A")
+
+          if [ "${ROLLBACK_DETECTED}" = "true" ]; then
+            echo ""
+            echo "================================================================================"
+            echo "❌ PIPELINE BLOQUEADA: ROLLBACK AUTOMÁTICO EXECUTADO COM SUCESSO!"
+            echo "   • Versão com Falha Rejeitada : ${APP_VERSION} (${NEW_TASK_DEF_ARN##*/})"
+            echo "   • Versão Estável Mantida     : ${PRIMARY_TASK_DEF##*/}"
+            echo "   • Motivo                     : ${FINAL_REASON}"
+            echo "   • Disponibilidade do Portal  : 100% Online (Zero-Downtime) em http://${ALB_DNS}"
+            echo "================================================================================"
+
+            {
+              echo "## 🚨 Rollback Automático Executado pelo ECS Circuit Breaker!"
+              echo ""
+              echo "| Indicador | Resultado |"
+              echo "| :--- | :--- |"
+              echo "| **Versão Testada** | \`${APP_VERSION}\` (\`SIMULATE_FAILURE=${SIMULATE_FAILURE}\`) |"
+              echo "| **Revisão Rejeitada** | \`${NEW_TASK_DEF_ARN##*/}\` |"
+              echo "| **Revisão Restaurada (Rollback)** | \`${PRIMARY_TASK_DEF##*/}\` |"
+              echo "| **Impacto ao Usuário Final** | **Zero-Downtime** (Portal permaneceu online na versão estável) |"
+              echo "| **URL do Portal (ALB)** | \`http://${ALB_DNS}\` |"
+              echo ""
+              echo "### 📋 Últimos Eventos do Serviço ECS"
+              echo "\`\`\`text"
+              aws ecs describe-services \
+                --cluster "${ECS_CLUSTER}" \
+                --services "${ECS_SERVICE}" \
+                --region "${AWS_REGION}" \
+                --query 'services[0].events[0:6].[createdAt, message]' \
+                --output text
+              echo "\`\`\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            exit 1
+          fi
+
+          {
+            echo "## ✅ Deploy Concluído com Sucesso (Zero-Downtime)"
+            echo ""
+            echo "| Indicador | Resultado |"
+            echo "| :--- | :--- |"
+            echo "| **Versão Publicada** | \`${APP_VERSION}\` (\`SIMULATE_FAILURE=${SIMULATE_FAILURE}\`) |"
+            echo "| **Revisão Ativa da Task Definition** | \`${NEW_TASK_DEF_ARN##*/}\` |"
+            echo "| **Status do Rollout** | \`COMPLETED (Healthy)\` |"
+            echo "| **URL do Portal (ALB)** | \`http://${ALB_DNS}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

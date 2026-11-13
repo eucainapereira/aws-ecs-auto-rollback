@@ -1,0 +1,124 @@
+name: "1 - Infraestrutura AWS (Terraform Apply / Destroy)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Ação do Terraform a executar na AWS"
+        required: true
+        default: "apply"
+        type: choice
+        options:
+          - apply
+          - destroy
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  TF_WORKING_DIR: "./terraform"
+
+jobs:
+  terraform:
+    name: "Terraform (${{ inputs.action }})"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "1. Checkout do Repositório"
+        uses: actions/checkout@v4
+
+      - name: "2. Autenticação AWS via OIDC (Sem Chaves Estáticas)"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: "3. Setup do Terraform"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.5"
+          terraform_wrapper: false
+
+      - name: "4. Sincronizar Estado Remoto (S3 Auto-State Bucket)"
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          STATE_BUCKET="ecs-rollback-lab-tfstate-${ACCOUNT_ID}-${AWS_REGION}"
+          echo "STATE_BUCKET=${STATE_BUCKET}" >> $GITHUB_ENV
+
+          if ! aws s3api head-bucket --bucket "${STATE_BUCKET}" 2>/dev/null; then
+            echo "Criando bucket S3 '${STATE_BUCKET}' para persistir o terraform.tfstate entre execuções..."
+            if [ "${AWS_REGION}" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "${STATE_BUCKET}" --region "${AWS_REGION}"
+            else
+              aws s3api create-bucket --bucket "${STATE_BUCKET}" --region "${AWS_REGION}" \
+                --create-bucket-configuration LocationConstraint="${AWS_REGION}"
+            fi
+            aws s3api put-bucket-versioning --bucket "${STATE_BUCKET}" \
+              --versioning-configuration Status=Enabled
+          fi
+
+          if aws s3 ls "s3://${STATE_BUCKET}/terraform.tfstate" >/dev/null 2>&1; then
+            echo "Restaurando terraform.tfstate existente do S3..."
+            aws s3 cp "s3://${STATE_BUCKET}/terraform.tfstate" "${TF_WORKING_DIR}/terraform.tfstate"
+          else
+            echo "Nenhum estado prévio encontrado no S3. Iniciando estado limpo."
+          fi
+
+      - name: "5. Terraform Init & Validate"
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init -input=false
+          terraform fmt -check
+          terraform validate
+
+      - name: "6. Executar Terraform Apply"
+        if: ${{ inputs.action == 'apply' }}
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform plan -input=false \
+            -var="aws_region=${AWS_REGION}" \
+            -var="github_repo=${GITHUB_REPOSITORY}" \
+            -out=tfplan
+          terraform apply -input=false -auto-approve tfplan
+
+      - name: "7. Executar Terraform Destroy (Limpeza de Custos)"
+        if: ${{ inputs.action == 'destroy' }}
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform destroy -input=false -auto-approve \
+            -var="aws_region=${AWS_REGION}" \
+            -var="github_repo=${GITHUB_REPOSITORY}"
+
+      - name: "8. Persistir Estado Atualizado no S3"
+        if: always()
+        run: |
+          if [ -f "${TF_WORKING_DIR}/terraform.tfstate" ]; then
+            echo "Salvando terraform.tfstate atualizado em s3://${STATE_BUCKET}/terraform.tfstate..."
+            aws s3 cp "${TF_WORKING_DIR}/terraform.tfstate" "s3://${STATE_BUCKET}/terraform.tfstate"
+          fi
+
+      - name: "9. Publicar Resumo da Infraestrutura no GitHub Summary"
+        if: ${{ inputs.action == 'apply' && success() }}
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          ALB_URL=$(terraform output -raw alb_url)
+          ECR_URL=$(terraform output -raw ecr_repository_url)
+          CLUSTER=$(terraform output -raw ecs_cluster_name)
+          SERVICE=$(terraform output -raw ecs_service_name)
+          ROLE_ARN=$(terraform output -raw github_actions_role_arn)
+
+          {
+            echo "## 🏗️ Infraestrutura AWS Provisionada com Sucesso!"
+            echo ""
+            echo "| Recurso | Valor |"
+            echo "| :--- | :--- |"
+            echo "| **URL Pública do Portal (ALB)** | \`${ALB_URL}\` |"
+            echo "| **Cluster ECS** | \`${CLUSTER}\` |"
+            echo "| **Serviço ECS** | \`${SERVICE}\` |"
+            echo "| **Repositório ECR** | \`${ECR_URL}\` |"
+            echo "| **Role OIDC GitHub Actions** | \`${ROLE_ARN}\` |"
+            echo ""
+            echo "> 💡 **Próximo passo:** Execute o workflow **2 - Deploy App & Auto-Rollback Monitor** para publicar a \`v1.0\` (estável) ou simular a falha na \`v2.0\`."
+          } >> "$GITHUB_STEP_SUMMARY"
