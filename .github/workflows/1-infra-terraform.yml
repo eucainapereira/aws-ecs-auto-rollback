@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
@@ -35,48 +36,47 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: "3. Setup do Terraform"
+      - name: "3. Mascarar Account ID nos Logs"
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "::add-mask::${ACCOUNT_ID}"
+
+      - name: "4. Restaurar Estado Anterior do Terraform (Artifact)"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LAST_RUN_ID=$(gh run list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --workflow "1-infra-terraform.yml" \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId // empty' || true)
+
+          if [ -n "${LAST_RUN_ID}" ]; then
+            echo "Restaurando terraform.tfstate da última execução bem-sucedida (Run ID: ${LAST_RUN_ID})..."
+            gh run download "${LAST_RUN_ID}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --name "terraform-state" \
+              --dir "${TF_WORKING_DIR}" || echo "Nenhum artifact terraform-state encontrado na execução anterior."
+          else
+            echo "Nenhuma execução prévia bem-sucedida encontrada. Iniciando estado limpo."
+          fi
+
+      - name: "5. Setup do Terraform"
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.8.5"
           terraform_wrapper: false
 
-      - name: "4. Mascarar Account ID e Sincronizar Estado Remoto (S3)"
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "::add-mask::${ACCOUNT_ID}"
-
-          ACCOUNT_HASH=$(echo -n "${ACCOUNT_ID}" | sha256sum | cut -c1-12)
-          STATE_BUCKET="ecs-rollback-lab-tfstate-${ACCOUNT_HASH}-${AWS_REGION}"
-          echo "STATE_BUCKET=${STATE_BUCKET}" >> $GITHUB_ENV
-
-          if ! aws s3api head-bucket --bucket "${STATE_BUCKET}" 2>/dev/null; then
-            echo "Criando bucket S3 '${STATE_BUCKET}' para persistir o terraform.tfstate entre execuções..."
-            if [ "${AWS_REGION}" = "us-east-1" ]; then
-              aws s3api create-bucket --bucket "${STATE_BUCKET}" --region "${AWS_REGION}"
-            else
-              aws s3api create-bucket --bucket "${STATE_BUCKET}" --region "${AWS_REGION}" \
-                --create-bucket-configuration LocationConstraint="${AWS_REGION}"
-            fi
-            aws s3api put-bucket-versioning --bucket "${STATE_BUCKET}" \
-              --versioning-configuration Status=Enabled
-          fi
-
-          if aws s3 ls "s3://${STATE_BUCKET}/terraform.tfstate" >/dev/null 2>&1; then
-            echo "Restaurando terraform.tfstate existente do S3..."
-            aws s3 cp "s3://${STATE_BUCKET}/terraform.tfstate" "${TF_WORKING_DIR}/terraform.tfstate"
-          else
-            echo "Nenhum estado prévio encontrado no S3. Iniciando estado limpo."
-          fi
-
-      - name: "5. Terraform Init & Validate"
+      - name: "6. Terraform Init & Validate"
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform init -input=false
           terraform fmt -check
           terraform validate
 
-      - name: "6. Executar Terraform Apply"
+      - name: "7. Executar Terraform Apply"
         if: ${{ inputs.action == 'apply' }}
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
@@ -86,7 +86,7 @@ jobs:
             -out=tfplan
           terraform apply -input=false -auto-approve tfplan
 
-      - name: "7. Executar Terraform Destroy (Limpeza de Custos)"
+      - name: "8. Executar Terraform Destroy (Limpeza de Custos)"
         if: ${{ inputs.action == 'destroy' }}
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
@@ -94,15 +94,16 @@ jobs:
             -var="aws_region=${AWS_REGION}" \
             -var="github_repo=${GITHUB_REPOSITORY}"
 
-      - name: "8. Persistir Estado Atualizado no S3"
+      - name: "9. Salvar Estado Atualizado do Terraform (Artifact)"
         if: always()
-        run: |
-          if [ -f "${TF_WORKING_DIR}/terraform.tfstate" ]; then
-            echo "Salvando terraform.tfstate atualizado em s3://${STATE_BUCKET}/terraform.tfstate..."
-            aws s3 cp "${TF_WORKING_DIR}/terraform.tfstate" "s3://${STATE_BUCKET}/terraform.tfstate"
-          fi
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state
+          path: ${{ env.TF_WORKING_DIR }}/terraform.tfstate
+          if-no-files-found: ignore
+          retention-days: 90
 
-      - name: "9. Publicar Resumo da Infraestrutura no GitHub Summary"
+      - name: "10. Publicar Resumo da Infraestrutura no GitHub Summary"
         if: ${{ inputs.action == 'apply' && success() }}
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
