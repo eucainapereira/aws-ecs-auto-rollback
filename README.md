@@ -173,14 +173,20 @@ ecs_service_name        = "clientes-resilience-lab-service"
 github_actions_role_arn = "arn:aws:iam::<AWS_ACCOUNT_ID>:role/github-actions-ecs-deploy-role"
 ```
 
-### Passo 2: Configurar os Secrets no GitHub
+### Passo 1: Configurar os Secrets no GitHub
 
 No seu repositório do GitHub, acesse **Settings → Secrets and variables → Actions → New repository secret** e cadastre:
 
 | Nome do Secret | Valor | Descrição |
 | :--- | :--- | :--- |
-| `AWS_ROLE_ARN` | `arn:aws:iam::<AWS_ACCOUNT_ID>:role/github-actions-ecs-deploy-role` | Copiado do output `github_actions_role_arn` do Terraform |
-| `AWS_REGION` | `us-east-1` | Região da AWS utilizada no projeto |
+| `AWS_ACCESS_KEY_ID` | `AKIA...` | Access Key ID do usuário IAM da AWS |
+| `AWS_SECRET_ACCESS_KEY` | `********` | Secret Access Key do usuário IAM da AWS |
+| `AWS_REGION` | `us-east-1` | Região da AWS utilizada no projeto (padrão: `us-east-1`) |
+
+### Passo 2: Provisionar a Infraestrutura Base via GitHub Actions
+
+1. Acesse **Actions → `1 - Infraestrutura AWS (Terraform Apply / Destroy)`**.
+2. Clique em **Run workflow** com a opção **`apply`**.
 
 ---
 

@@ -13,7 +13,6 @@ on:
           - destroy
 
 permissions:
-  id-token: write
   contents: read
 
 env:
@@ -29,10 +28,11 @@ jobs:
       - name: "1. Checkout do Repositório"
         uses: actions/checkout@v4
 
-      - name: "2. Autenticação AWS via OIDC (Sem Chaves Estáticas)"
+      - name: "2. Autenticação AWS via GitHub Secrets"
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: "3. Setup do Terraform"
@@ -69,16 +69,6 @@ jobs:
             echo "Nenhum estado prévio encontrado no S3. Iniciando estado limpo."
           fi
 
-          # Verifica se a Role github-actions-ecs-deploy-role já foi criada fora do estado do Terraform
-          CREATE_ROLE="true"
-          if aws iam get-role --role-name "github-actions-ecs-deploy-role" >/dev/null 2>&1; then
-            if ! grep -q '"github-actions-ecs-deploy-role"' "${TF_WORKING_DIR}/terraform.tfstate" 2>/dev/null; then
-              echo "Role 'github-actions-ecs-deploy-role' já existe na conta AWS; reutilizando sem recriar."
-              CREATE_ROLE="false"
-            fi
-          fi
-          echo "CREATE_ROLE=${CREATE_ROLE}" >> $GITHUB_ENV
-
       - name: "5. Terraform Init & Validate"
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
@@ -93,8 +83,6 @@ jobs:
           terraform plan -input=false \
             -var="aws_region=${AWS_REGION}" \
             -var="github_repo=${GITHUB_REPOSITORY}" \
-            -var="create_github_oidc_provider=false" \
-            -var="create_github_oidc_role=${CREATE_ROLE}" \
             -out=tfplan
           terraform apply -input=false -auto-approve tfplan
 
@@ -104,9 +92,7 @@ jobs:
         run: |
           terraform destroy -input=false -auto-approve \
             -var="aws_region=${AWS_REGION}" \
-            -var="github_repo=${GITHUB_REPOSITORY}" \
-            -var="create_github_oidc_provider=false" \
-            -var="create_github_oidc_role=${CREATE_ROLE}"
+            -var="github_repo=${GITHUB_REPOSITORY}"
 
       - name: "8. Persistir Estado Atualizado no S3"
         if: always()
