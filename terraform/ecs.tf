@@ -167,17 +167,6 @@ resource "aws_ecs_task_definition" "app" {
         }
       ]
 
-      healthCheck = {
-        command = [
-          "CMD-SHELL",
-          "python -c \"import urllib.request, sys; r = urllib.request.urlopen('http://127.0.0.1:${var.container_port}/health', timeout=3); sys.exit(0 if r.getcode() == 200 else 1)\""
-        ]
-        interval    = 10
-        timeout     = 5
-        retries     = 2
-        startPeriod = 5
-      }
-
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -199,7 +188,7 @@ resource "aws_ecs_service" "app" {
   task_definition                   = aws_ecs_task_definition.app.arn
   desired_count                     = var.ecs_desired_count
   launch_type                       = "FARGATE"
-  health_check_grace_period_seconds = 10
+  health_check_grace_period_seconds = 30
 
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200

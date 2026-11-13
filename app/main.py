@@ -103,9 +103,7 @@ async def lifespan(app: FastAPI):
         DYNAMODB_TABLE,
         CONTAINER_ID,
     )
-    if not SIMULATE_FAILURE:
-        ensure_seed_data()
-    else:
+    if SIMULATE_FAILURE:
         logger.error(
             "ALERTA DE SIMULAÇÃO: SIMULATE_FAILURE=true ativo! A rota /health retornará HTTP 500 para acionar o ECS Deployment Circuit Breaker."
         )

@@ -27,6 +27,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ecs-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   AWS_REGION: "us-east-2"
   ECR_REPOSITORY: "clientes-app"
@@ -136,7 +140,8 @@ jobs:
             )
             | .containerDefinitions |= map(
                 if .name == $CNAME then
-                  .image = $IMAGE
+                  del(.healthCheck)
+                  | .image = $IMAGE
                   | .environment = (
                       (.environment // [])
                       | map(select(.name != "APP_VERSION" and .name != "SIMULATE_FAILURE"))
