@@ -13,7 +13,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     APP_VERSION=${APP_VERSION} \
     SIMULATE_FAILURE=${SIMULATE_FAILURE} \
     DYNAMODB_TABLE="clientes-resilience-lab" \
-    AWS_REGION="us-east-1" \
+    AWS_REGION="us-east-2" \
     PORT=8000
 
 WORKDIR /app

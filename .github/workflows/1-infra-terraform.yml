@@ -17,7 +17,7 @@ permissions:
   actions: read
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  AWS_REGION: "us-east-2"
   TF_WORKING_DIR: "./terraform"
 
 jobs:

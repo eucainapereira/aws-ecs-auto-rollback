@@ -25,7 +25,7 @@ SIMULATE_FAILURE_RAW = os.getenv("SIMULATE_FAILURE", "false")
 SIMULATE_FAILURE = SIMULATE_FAILURE_RAW.strip().lower() in ("true", "1", "yes")
 
 DYNAMODB_TABLE = os.getenv("DYNAMODB_TABLE", "clientes-resilience-lab")
-AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-2"))
 CONTAINER_ID = socket.gethostname()
 
 SEED_CLIENTES: List[Dict[str, str]] = [

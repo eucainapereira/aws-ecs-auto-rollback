@@ -31,7 +31,7 @@ flowchart TB
         GHA_Deploy["Workflow 2: Build, Deploy &\nReal-Time Rollback Monitor"]
     end
 
-    subgraph AWS["AWS Cloud (us-east-1)"]
+    subgraph AWS["AWS Cloud (us-east-2)"]
         OIDC["AWS IAM OIDC Provider\ngithub-actions-ecs-deploy-role\n(Sem Chaves Estáticas)"]
         ECR["Amazon ECR\nclientes-app"]
         CW["CloudWatch Logs\n/ecs/clientes-resilience-lab"]
@@ -164,10 +164,10 @@ Ao final do `apply`, o Terraform exibirá os outputs:
 
 ```text
 Outputs:
-alb_dns_name            = "clientes-resilience-lab-alb-xxxxxxxxx.us-east-1.elb.amazonaws.com"
-alb_url                 = "http://clientes-resilience-lab-alb-xxxxxxxxx.us-east-1.elb.amazonaws.com"
+alb_dns_name            = "clientes-resilience-lab-alb-xxxxxxxxx.us-east-2.elb.amazonaws.com"
+alb_url                 = "http://clientes-resilience-lab-alb-xxxxxxxxx.us-east-2.elb.amazonaws.com"
 dynamodb_table_name     = "clientes-resilience-lab"
-ecr_repository_url      = "<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/clientes-app"
+ecr_repository_url      = "<AWS_ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/clientes-app"
 ecs_cluster_name        = "clientes-resilience-lab-cluster"
 ecs_service_name        = "clientes-resilience-lab-service"
 github_actions_role_arn = "arn:aws:iam::<AWS_ACCOUNT_ID>:role/github-actions-ecs-deploy-role"
@@ -181,7 +181,7 @@ No seu repositório do GitHub, acesse **Settings → Secrets and variables → A
 | :--- | :--- | :--- |
 | `AWS_ACCESS_KEY_ID` | `AKIA...` | Access Key ID do usuário IAM da AWS |
 | `AWS_SECRET_ACCESS_KEY` | `********` | Secret Access Key do usuário IAM da AWS |
-| `AWS_REGION` | `us-east-1` | Região da AWS utilizada no projeto (padrão: `us-east-1`) |
+| `AWS_REGION` | `us-east-2` | Região da AWS utilizada no projeto (padrão: `us-east-2`) |
 
 ### Passo 2: Provisionar a Infraestrutura Base via GitHub Actions
 

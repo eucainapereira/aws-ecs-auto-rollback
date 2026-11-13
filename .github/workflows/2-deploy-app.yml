@@ -28,7 +28,7 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  AWS_REGION: "us-east-2"
   ECR_REPOSITORY: "clientes-app"
   ECS_CLUSTER: "clientes-resilience-lab-cluster"
   ECS_SERVICE: "clientes-resilience-lab-service"
