@@ -75,18 +75,23 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: "4. Login no Amazon ECR"
+      - name: "4. Mascarar Account ID nos Logs"
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "::add-mask::${ACCOUNT_ID}"
+
+      - name: "5. Login no Amazon ECR"
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: "5. Build e Push da Imagem Docker para o ECR"
+      - name: "6. Build e Push da Imagem Docker para o ECR"
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           FULL_IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
           LATEST_IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
 
-          echo "Construindo imagem Docker: ${FULL_IMAGE_URI}"
+          echo "Construindo imagem Docker: ${ECR_REPOSITORY}:${IMAGE_TAG}"
           docker build \
             --build-arg APP_VERSION="${APP_VERSION}" \
             --build-arg SIMULATE_FAILURE="${SIMULATE_FAILURE}" \
@@ -100,7 +105,7 @@ jobs:
 
           echo "FULL_IMAGE_URI=${FULL_IMAGE_URI}" >> $GITHUB_ENV
 
-      - name: "6. Registrar Nova Task Definition e Iniciar Deploy no ECS"
+      - name: "7. Registrar Nova Task Definition e Iniciar Deploy no ECS"
         id: register-deploy
         run: |
           echo "Buscando Task Definition atual (${ECS_TASK_FAMILY})..."
@@ -163,14 +168,14 @@ jobs:
           echo "NEW_TASK_DEF_ARN=${NEW_TASK_DEF_ARN}" >> $GITHUB_ENV
           echo "NEW_REVISION=${NEW_REVISION}" >> $GITHUB_ENV
 
-      - name: "7. Observabilidade em Tempo Real: Monitoramento do Deploy e Circuit Breaker"
+      - name: "8. Observabilidade em Tempo Real: Monitoramento do Deploy e Circuit Breaker"
         run: |
           set -e
           echo "================================================================================"
           echo "🔍 MONITORAMENTO EM TEMPO REAL DO DEPLOY ECS & CIRCUIT BREAKER"
           echo "   • Cluster             : ${ECS_CLUSTER}"
           echo "   • Serviço             : ${ECS_SERVICE}"
-          echo "   • Revisão Alvo        : ${NEW_TASK_DEF_ARN}"
+          echo "   • Revisão Alvo        : ${ECS_TASK_FAMILY}:${NEW_REVISION}"
           echo "   • Versão / Simulação  : APP_VERSION=${APP_VERSION} | SIMULATE_FAILURE=${SIMULATE_FAILURE}"
           echo "================================================================================"
 

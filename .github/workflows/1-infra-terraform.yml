@@ -41,10 +41,13 @@ jobs:
           terraform_version: "1.8.5"
           terraform_wrapper: false
 
-      - name: "4. Sincronizar Estado Remoto (S3 Auto-State Bucket)"
+      - name: "4. Mascarar Account ID e Sincronizar Estado Remoto (S3)"
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          STATE_BUCKET="ecs-rollback-lab-tfstate-${ACCOUNT_ID}-${AWS_REGION}"
+          echo "::add-mask::${ACCOUNT_ID}"
+
+          ACCOUNT_HASH=$(echo -n "${ACCOUNT_ID}" | sha256sum | cut -c1-12)
+          STATE_BUCKET="ecs-rollback-lab-tfstate-${ACCOUNT_HASH}-${AWS_REGION}"
           echo "STATE_BUCKET=${STATE_BUCKET}" >> $GITHUB_ENV
 
           if ! aws s3api head-bucket --bucket "${STATE_BUCKET}" 2>/dev/null; then
@@ -66,6 +69,16 @@ jobs:
             echo "Nenhum estado prévio encontrado no S3. Iniciando estado limpo."
           fi
 
+          # Verifica se a Role github-actions-ecs-deploy-role já foi criada fora do estado do Terraform
+          CREATE_ROLE="true"
+          if aws iam get-role --role-name "github-actions-ecs-deploy-role" >/dev/null 2>&1; then
+            if ! grep -q '"github-actions-ecs-deploy-role"' "${TF_WORKING_DIR}/terraform.tfstate" 2>/dev/null; then
+              echo "Role 'github-actions-ecs-deploy-role' já existe na conta AWS; reutilizando sem recriar."
+              CREATE_ROLE="false"
+            fi
+          fi
+          echo "CREATE_ROLE=${CREATE_ROLE}" >> $GITHUB_ENV
+
       - name: "5. Terraform Init & Validate"
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
@@ -80,6 +93,8 @@ jobs:
           terraform plan -input=false \
             -var="aws_region=${AWS_REGION}" \
             -var="github_repo=${GITHUB_REPOSITORY}" \
+            -var="create_github_oidc_provider=false" \
+            -var="create_github_oidc_role=${CREATE_ROLE}" \
             -out=tfplan
           terraform apply -input=false -auto-approve tfplan
 
@@ -89,7 +104,9 @@ jobs:
         run: |
           terraform destroy -input=false -auto-approve \
             -var="aws_region=${AWS_REGION}" \
-            -var="github_repo=${GITHUB_REPOSITORY}"
+            -var="github_repo=${GITHUB_REPOSITORY}" \
+            -var="create_github_oidc_provider=false" \
+            -var="create_github_oidc_role=${CREATE_ROLE}"
 
       - name: "8. Persistir Estado Atualizado no S3"
         if: always()
@@ -103,11 +120,13 @@ jobs:
         if: ${{ inputs.action == 'apply' && success() }}
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "::add-mask::${ACCOUNT_ID}"
+
           ALB_URL=$(terraform output -raw alb_url)
-          ECR_URL=$(terraform output -raw ecr_repository_url)
           CLUSTER=$(terraform output -raw ecs_cluster_name)
           SERVICE=$(terraform output -raw ecs_service_name)
-          ROLE_ARN=$(terraform output -raw github_actions_role_arn)
+          DDB_TABLE=$(terraform output -raw dynamodb_table_name)
 
           {
             echo "## 🏗️ Infraestrutura AWS Provisionada com Sucesso!"
@@ -117,8 +136,8 @@ jobs:
             echo "| **URL Pública do Portal (ALB)** | \`${ALB_URL}\` |"
             echo "| **Cluster ECS** | \`${CLUSTER}\` |"
             echo "| **Serviço ECS** | \`${SERVICE}\` |"
-            echo "| **Repositório ECR** | \`${ECR_URL}\` |"
-            echo "| **Role OIDC GitHub Actions** | \`${ROLE_ARN}\` |"
+            echo "| **Tabela DynamoDB** | \`${DDB_TABLE}\` |"
+            echo "| **Repositório ECR** | \`clientes-app\` |"
             echo ""
             echo "> 💡 **Próximo passo:** Execute o workflow **2 - Deploy App & Auto-Rollback Monitor** para publicar a \`v1.0\` (estável) ou simular a falha na \`v2.0\`."
           } >> "$GITHUB_STEP_SUMMARY"

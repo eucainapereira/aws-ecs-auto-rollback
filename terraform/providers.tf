@@ -21,3 +21,8 @@ provider "aws" {
     }
   }
 }
+
+# Obtém dinamicamente o Account ID e a Região da conta AWS autenticada
+# evitando expor qualquer ID de conta AWS no código-fonte Terraform.
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}

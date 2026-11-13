@@ -1,7 +1,6 @@
-data "aws_caller_identity" "current" {}
-
 # ==============================================================================
 # GitHub Actions OIDC Provider & IAM Role (Autenticação Sem Chaves Estáticas)
+# Utiliza data.aws_caller_identity.current.account_id para não expor o ID da conta
 # ==============================================================================
 resource "aws_iam_openid_connect_provider" "github" {
   count = var.create_github_oidc_provider ? 1 : 0
@@ -16,10 +15,13 @@ resource "aws_iam_openid_connect_provider" "github" {
 }
 
 locals {
-  github_oidc_provider_arn = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
+  aws_account_id           = data.aws_caller_identity.current.account_id
+  github_oidc_provider_arn = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : "arn:aws:iam::${local.aws_account_id}:oidc-provider/token.actions.githubusercontent.com"
 }
 
 resource "aws_iam_role" "github_actions_ecs_deploy" {
+  count = var.create_github_oidc_role ? 1 : 0
+
   name        = "github-actions-ecs-deploy-role"
   description = "Role assumida pelo GitHub Actions via OIDC para deploy no ECS/ECR e gestao do laboratorio"
 
@@ -48,8 +50,10 @@ resource "aws_iam_role" "github_actions_ecs_deploy" {
 
 # Política de Menor Privilégio para CI/CD (ECR Push + ECS Deploy/Monitor + PassRole)
 resource "aws_iam_role_policy" "github_actions_ecs_deploy_policy" {
+  count = var.create_github_oidc_role ? 1 : 0
+
   name = "github-actions-ecs-ecr-deploy-policy"
-  role = aws_iam_role.github_actions_ecs_deploy.id
+  role = aws_iam_role.github_actions_ecs_deploy[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -100,7 +104,7 @@ resource "aws_iam_role_policy" "github_actions_ecs_deploy_policy" {
         Resource = [
           aws_ecs_cluster.main.arn,
           aws_ecs_service.app.id,
-          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.main.name}/*"
+          "arn:aws:ecs:${data.aws_region.current.name}:${local.aws_account_id}:task/${aws_ecs_cluster.main.name}/*"
         ]
       },
       {

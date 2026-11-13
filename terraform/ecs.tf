@@ -229,3 +229,4 @@ resource "aws_ecs_service" "app" {
     ignore_changes = [task_definition]
   }
 }
+

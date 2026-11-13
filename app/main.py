@@ -521,3 +521,4 @@ async def index(request: Request):
 </body>
 </html>"""
     return HTMLResponse(content=html_content, status_code=200)
+

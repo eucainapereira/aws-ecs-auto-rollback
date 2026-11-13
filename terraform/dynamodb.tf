@@ -23,3 +23,4 @@ resource "aws_dynamodb_table" "clientes" {
     Name = "clientes-resilience-lab"
   }
 }
+

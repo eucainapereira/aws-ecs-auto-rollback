@@ -164,13 +164,13 @@ Ao final do `apply`, o Terraform exibirá os outputs:
 
 ```text
 Outputs:
-alb_dns_name            = "clientes-resilience-lab-alb-123456789.us-east-1.elb.amazonaws.com"
-alb_url                 = "http://clientes-resilience-lab-alb-123456789.us-east-1.elb.amazonaws.com"
+alb_dns_name            = "clientes-resilience-lab-alb-xxxxxxxxx.us-east-1.elb.amazonaws.com"
+alb_url                 = "http://clientes-resilience-lab-alb-xxxxxxxxx.us-east-1.elb.amazonaws.com"
 dynamodb_table_name     = "clientes-resilience-lab"
-ecr_repository_url      = "123456789012.dkr.ecr.us-east-1.amazonaws.com/clientes-app"
+ecr_repository_url      = "<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/clientes-app"
 ecs_cluster_name        = "clientes-resilience-lab-cluster"
 ecs_service_name        = "clientes-resilience-lab-service"
-github_actions_role_arn = "arn:aws:iam::123456789012:role/github-actions-ecs-deploy-role"
+github_actions_role_arn = "arn:aws:iam::<AWS_ACCOUNT_ID>:role/github-actions-ecs-deploy-role"
 ```
 
 ### Passo 2: Configurar os Secrets no GitHub
@@ -179,7 +179,7 @@ No seu repositório do GitHub, acesse **Settings → Secrets and variables → A
 
 | Nome do Secret | Valor | Descrição |
 | :--- | :--- | :--- |
-| `AWS_ROLE_ARN` | `arn:aws:iam::<ACCOUNT_ID>:role/github-actions-ecs-deploy-role` | Copiado do output `github_actions_role_arn` do Terraform |
+| `AWS_ROLE_ARN` | `arn:aws:iam::<AWS_ACCOUNT_ID>:role/github-actions-ecs-deploy-role` | Copiado do output `github_actions_role_arn` do Terraform |
 | `AWS_REGION` | `us-east-1` | Região da AWS utilizada no projeto |
 
 ---
@@ -257,3 +257,4 @@ Para destruir todos os recursos (ALB, ECS Fargate, ECR com `force_delete = true`
 cd terraform
 terraform destroy -auto-approve
 ```
+

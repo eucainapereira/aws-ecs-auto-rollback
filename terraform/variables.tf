@@ -23,7 +23,13 @@ variable "github_repo" {
 }
 
 variable "create_github_oidc_provider" {
-  description = "Define se o provedor OIDC do GitHub deve ser criado (defina false caso a conta AWS já possua o provedor token.actions.githubusercontent.com)"
+  description = "Define se o provedor OIDC do GitHub deve ser criado (false reutiliza o provedor OIDC já existente na conta via data.aws_caller_identity.current.account_id)"
+  type        = bool
+  default     = false
+}
+
+variable "create_github_oidc_role" {
+  description = "Define se a Role IAM github-actions-ecs-deploy-role deve ser criada pelo Terraform (false caso a Role já tenha sido criada previamente na conta)"
   type        = bool
   default     = true
 }
