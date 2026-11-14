@@ -52,20 +52,20 @@ flowchart TB
         end
     end
 
-    User(("Usuário / Cliente")) -->|HTTP :80| IGW --> ALB
-    ALB -->|Tráfego Produção 100%| TaskV1
-    ALB -.->|Health Check /health Reprovado!| TaskV2
-    CB -->|Monitora Rollout & Reverte p/ v1.0| TaskV1
-    CB -.->|Mata Tasks Defeituosas| TaskV2
-    TaskV1 -->|IAM Task Role (Least Privilege)| DDB
+    User(("Usuário / Cliente")) -->|"HTTP :80"| IGW --> ALB
+    ALB -->|"Tráfego Produção 100%"| TaskV1
+    ALB -.->|"Health Check /health Reprovado!"| TaskV2
+    CB -->|"Monitora Rollout & Reverte p/ v1.0"| TaskV1
+    CB -.->|"Mata Tasks Defeituosas"| TaskV2
+    TaskV1 -->|"IAM Task Role (Least Privilege)"| DDB
     TaskV1 --> CW
     TaskV2 --> CW
 
-    GHA_Infra -->|AssumeRoleWithWebIdentity| OIDC
-    GHA_Deploy -->|AssumeRoleWithWebIdentity| OIDC
-    OIDC -->|Push Docker Image| ECR
-    OIDC -->|UpdateService & DescribeServices| CB
-    ECR -->|Pull Image (assign_public_ip=true)| ECS
+    GHA_Infra -->|"AssumeRoleWithWebIdentity"| OIDC
+    GHA_Deploy -->|"AssumeRoleWithWebIdentity"| OIDC
+    OIDC -->|"Push Docker Image"| ECR
+    OIDC -->|"UpdateService & DescribeServices"| CB
+    ECR -->|"Pull Image (assign_public_ip=true)"| ECS
 ```
 
 ### 2. Fluxo do Rollback Automático (Sequência em 2 Atos)
