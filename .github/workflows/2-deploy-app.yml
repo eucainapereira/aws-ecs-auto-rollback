@@ -97,11 +97,25 @@ jobs:
 
           echo "Construindo imagem Docker: ${ECR_REPOSITORY}:${IMAGE_TAG}"
           docker build \
+            --provenance=false \
             --build-arg APP_VERSION="${APP_VERSION}" \
             --build-arg SIMULATE_FAILURE="${SIMULATE_FAILURE}" \
             -t "${FULL_IMAGE_URI}" \
             -t "${LATEST_IMAGE_URI}" \
             ./app
+
+          echo "Executando Smoke Test local do container antes do push..."
+          docker run -d --name smoke-test -p 8000:8000 "${FULL_IMAGE_URI}"
+          sleep 3
+          if ! docker ps | grep -q smoke-test; then
+            echo "❌ Container encerrou inesperadamente no Smoke Test! Logs:"
+            docker logs smoke-test
+            exit 1
+          fi
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
+          echo "Smoke Test /health HTTP Status: ${HTTP_CODE} (SIMULATE_FAILURE=${SIMULATE_FAILURE})"
+          docker logs smoke-test
+          docker rm -f smoke-test
 
           echo "Enviando imagem para o Amazon ECR..."
           docker push "${FULL_IMAGE_URI}"
@@ -167,6 +181,8 @@ jobs:
             --cluster "${ECS_CLUSTER}" \
             --service "${ECS_SERVICE}" \
             --task-definition "${NEW_TASK_DEF_ARN}" \
+            --health-check-grace-period-seconds 60 \
+            --force-new-deployment \
             --region "${AWS_REGION}" >/dev/null
 
           echo "PREVIOUS_TASK_DEF_ARN=${PREVIOUS_TASK_DEF_ARN}" >> $GITHUB_ENV
@@ -219,6 +235,25 @@ jobs:
               --region "${AWS_REGION}" \
               --query 'services[0].events[0:5].[createdAt, message]' \
               --output text | sed 's/^/       -> /'
+
+            if [ "${PRIMARY_FAILED}" -gt 0 ]; then
+              STOPPED_TASKS=$(aws ecs list-tasks \
+                --cluster "${ECS_CLUSTER}" \
+                --service-name "${ECS_SERVICE}" \
+                --desired-status STOPPED \
+                --region "${AWS_REGION}" \
+                --query 'taskArns[0:2]' \
+                --output text 2>/dev/null || true)
+              if [ -n "${STOPPED_TASKS}" ] && [ "${STOPPED_TASKS}" != "None" ]; then
+                echo "   • Diagnóstico de Tasks Paradas (STOPPED):"
+                aws ecs describe-tasks \
+                  --cluster "${ECS_CLUSTER}" \
+                  --tasks ${STOPPED_TASKS} \
+                  --region "${AWS_REGION}" \
+                  --query 'tasks[*].[taskDefinitionArn, stoppedReason, containers[0].exitCode, containers[0].reason]' \
+                  --output text | sed 's/^/       [STOPPED] /'
+              fi
+            fi
 
             # Caso 1: O ECS Circuit Breaker já reverteu o deployment PRIMARY de volta para uma revisão anterior!
             if [ "${PRIMARY_TASK_DEF}" != "${NEW_TASK_DEF_ARN}" ]; then
