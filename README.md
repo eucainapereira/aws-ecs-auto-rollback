@@ -144,52 +144,6 @@ aws-ecs-auto-rollback-lab/
 
 ---
 
-## 🚀 Passo a Passo de Configuração e Execução
-
-### Pré-requisitos
-- Conta na AWS
-- Terraform `>= 1.5` e AWS CLI configurados localmente (para o primeiro bootstrap do OIDC) **ou** uma Role OIDC já existente na conta.
-
-### Passo 1: Provisionar a Infraestrutura Base (Bootstrap Inicial)
-
-Execute o primeiro `apply` localmente para criar a VPC, o ALB, o ECR, o DynamoDB, o Cluster ECS e a Role OIDC do GitHub Actions (ou utilize uma Role OIDC administrativa existente na sua conta):
-
-```bash
-cd terraform
-terraform init
-terraform apply -var="github_repo=SEU_USUARIO/aws-ecs-auto-rollback"
-```
-
-Ao final do `apply`, o Terraform exibirá os outputs:
-
-```text
-Outputs:
-alb_dns_name            = "clientes-resilience-lab-alb-xxxxxxxxx.us-east-2.elb.amazonaws.com"
-alb_url                 = "http://clientes-resilience-lab-alb-xxxxxxxxx.us-east-2.elb.amazonaws.com"
-dynamodb_table_name     = "clientes-resilience-lab"
-ecr_repository_url      = "<AWS_ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/clientes-app"
-ecs_cluster_name        = "clientes-resilience-lab-cluster"
-ecs_service_name        = "clientes-resilience-lab-service"
-github_actions_role_arn = "arn:aws:iam::<AWS_ACCOUNT_ID>:role/github-actions-ecs-deploy-role"
-```
-
-### Passo 1: Configurar os Secrets no GitHub
-
-No seu repositório do GitHub, acesse **Settings → Secrets and variables → Actions → New repository secret** e cadastre:
-
-| Nome do Secret | Valor | Descrição |
-| :--- | :--- | :--- |
-| `AWS_ACCESS_KEY_ID` | `AKIA...` | Access Key ID do usuário IAM da AWS |
-| `AWS_SECRET_ACCESS_KEY` | `********` | Secret Access Key do usuário IAM da AWS |
-| `AWS_REGION` | `us-east-2` | Região da AWS utilizada no projeto (padrão: `us-east-2`) |
-
-### Passo 2: Provisionar a Infraestrutura Base via GitHub Actions
-
-1. Acesse **Actions → `1 - Infraestrutura AWS (Terraform Apply / Destroy)`**.
-2. Clique em **Run workflow** com a opção **`apply`**.
-
----
-
 ## 🎬 Roteiro de Demonstração em 2 Atos
 
 ### 🟢 Ato 1: Deploy da Versão `v1.0` Saudável (Pipeline Verde)
