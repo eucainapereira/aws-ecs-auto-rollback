@@ -32,8 +32,3 @@ output "dynamodb_table_name" {
   description = "Nome da tabela Amazon DynamoDB de clientes"
   value       = aws_dynamodb_table.clientes.name
 }
-
-output "github_actions_role_arn" {
-  description = "ARN da IAM Role OIDC para configurar no secret AWS_ROLE_ARN do GitHub Actions"
-  value       = var.create_github_oidc_role ? aws_iam_role.github_actions_ecs_deploy[0].arn : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github-actions-ecs-deploy-role"
-}

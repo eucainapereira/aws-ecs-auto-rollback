@@ -84,8 +84,7 @@ aws-ecs-auto-rollback-lab/
 │   ├── ecr.tf                       # Repositório ECR clientes-app (force_delete = true + lifecycle)
 │   ├── alb.tf                       # ALB público porta 80 + Target Group com Health Check agressivo
 │   ├── ecs.tf                       # Cluster Fargate, Task Definition, IAM Roles e Circuit Breaker
-│   ├── iam_oidc.tf                  # Provedor OIDC do GitHub + Role IAM de menor privilégio
-│   └── outputs.tf                   # URL do ALB, URI do ECR, nomes do ECS e ARN da Role OIDC
+│   └── outputs.tf                   # URL do ALB, URI do ECR, nomes do ECS e tabela DynamoDB
 ├── .github/
 │   └── workflows/
 │       ├── 1-infra-terraform.yml    # Provisionamento e destruição manual (apply / destroy)
@@ -101,8 +100,8 @@ aws-ecs-auto-rollback-lab/
 | :--- | :--- | :--- |
 | **Resiliência** | `deployment_circuit_breaker { enable = true, rollback = true }` + `min_healthy = 100% / max = 200%` | Garante que a versão saudável `v1.0` nunca pare de atender enquanto a `v2.0` é testada e revertida. |
 | **Detecção Rápida** | Health Check em `/health` com `interval = 10s`, `timeout = 5s`, `healthy/unhealthy_threshold = 2` | Acelera a detecção de falha e demonstração do rollback em poucos minutos durante testes ao vivo. |
-| **Segurança (Zero Keys)** | Autenticação via **AWS IAM OIDC** (`sts:AssumeRoleWithWebIdentity`) restrita ao repositório GitHub | Elimina `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY` de longa duração no GitHub. |
-| **Menor Privilégio** | separação entre `ecsTaskExecutionRole` (infra) e `ecsTaskRole` (acesso restrito ao ARN da tabela DynamoDB) | O container da aplicação só possui permissão para ler/escrever na tabela `clientes-resilience-lab`. |
+| **Segurança & Sigilo** | Autenticação isolada via **GitHub Secrets** + `data.aws_caller_identity` e máscara (`::add-mask::`) | Nenhuma chave ou ID da conta AWS fica exposto no código-fonte ou nos logs públicos do pipeline. |
+| **Menor Privilégio** | Separação entre `ecsTaskExecutionRole` (infra) e `ecsTaskRole` (acesso restrito ao ARN da tabela DynamoDB) | O container da aplicação só possui permissão para ler/escrever na tabela `clientes-resilience-lab`. |
 | **FinOps (Baixo Custo)** | Tasks Fargate (`0.25 vCPU / 0.5 GB`) em Subnets Públicas com `assign_public_ip = true` + Security Group restrito ao ALB | Evita o custo fixo de NAT Gateways (~US$ 32/mês) mantendo as tasks acessíveis na porta `8000` exclusivamente pelo Security Group do ALB. |
 
 ---

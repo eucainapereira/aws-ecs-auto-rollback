@@ -17,21 +17,9 @@ variable "environment" {
 }
 
 variable "github_repo" {
-  description = "Repositório do GitHub autorizado no formato owner/repo"
+  description = "Repositório do GitHub do projeto no formato owner/repo"
   type        = string
   default     = "eucainapereira/aws-ecs-auto-rollback"
-}
-
-variable "create_github_oidc_provider" {
-  description = "Define se o provedor OIDC do GitHub deve ser criado (opcional)"
-  type        = bool
-  default     = false
-}
-
-variable "create_github_oidc_role" {
-  description = "Define se a Role IAM OIDC deve ser criada pelo Terraform (false quando autenticado via IAM Access Keys nos Secrets do GitHub)"
-  type        = bool
-  default     = false
 }
 
 variable "container_port" {
