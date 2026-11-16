@@ -22,9 +22,6 @@ Em ambientes críticos de produção, um deploy contendo um bug de inicializaç�
 
 ## 🏛️ Arquitetura da Solução
 
-### 1. Topologia de Infraestrutura e Segurança
-
-```mermaid
 flowchart TB
     subgraph GitHub["GitHub Actions CI/CD"]
         GHA_Infra["Workflow 1: Infra Terraform\n(apply / destroy)"]
@@ -32,7 +29,7 @@ flowchart TB
     end
 
     subgraph AWS["AWS Cloud (us-east-2)"]
-        OIDC["AWS IAM OIDC Provider\ngithub-actions-ecs-deploy-role\n(Sem Chaves Estáticas)"]
+        IAM["AWS IAM\nGitHub Encrypted Secrets\n(Account ID Mascarado)"]
         ECR["Amazon ECR\nclientes-app"]
         CW["CloudWatch Logs\n/ecs/clientes-resilience-lab"]
         DDB[("Amazon DynamoDB\nclientes-resilience-lab\n(PAY_PER_REQUEST)")]
@@ -61,47 +58,11 @@ flowchart TB
     TaskV1 --> CW
     TaskV2 --> CW
 
-    GHA_Infra -->|"AssumeRoleWithWebIdentity"| OIDC
-    GHA_Deploy -->|"AssumeRoleWithWebIdentity"| OIDC
-    OIDC -->|"Push Docker Image"| ECR
-    OIDC -->|"UpdateService & DescribeServices"| CB
+    GHA_Infra -->|"AWS Credentials (Secrets)"| IAM
+    GHA_Deploy -->|"AWS Credentials (Secrets)"| IAM
+    IAM -->|"Push Docker Image"| ECR
+    IAM -->|"UpdateService & DescribeServices"| CB
     ECR -->|"Pull Image (assign_public_ip=true)"| ECS
-```
-
-### 2. Fluxo do Rollback Automático (Sequência em 2 Atos)
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Dev as Engenheiro SRE
-    participant GHA as GitHub Actions
-    participant ECR as Amazon ECR
-    participant ECS as ECS Service + Circuit Breaker
-    participant ALB as ALB Target Group (/health)
-    participant User as Usuário Final
-
-    Note over Dev,User: ATO 1: Deploy Saudável (v1.0 | SIMULATE_FAILURE=false)
-    Dev->>GHA: Dispara Deploy v1.0 (SIMULATE_FAILURE=false)
-    GHA->>ECR: Build & Push imagem v1.0
-    GHA->>ECS: Registra TaskDef :1 e atualiza Serviço
-    ECS->>ALB: Inicia Task v1.0 e registra IP no Target Group
-    ALB->>ECS: GET /health -> HTTP 200 OK (2x consecutivas)
-    ECS-->>GHA: Rollout COMPLETED (Pipeline Verde ✅)
-    User->>ALB: Acessa Portal -> Recebe v1.0 ESTÁVEL (Zero-Downtime)
-
-    Note over Dev,User: ATO 2: Deploy Defeituoso (v2.0 | SIMULATE_FAILURE=true)
-    Dev->>GHA: Dispara Deploy v2.0 (SIMULATE_FAILURE=true)
-    GHA->>ECR: Build & Push imagem v2.0
-    GHA->>ECS: Registra TaskDef :2 e atualiza Serviço
-    ECS->>ALB: Sobe Task v2.0 em paralelo (mantém v1.0 ativa!)
-    User->>ALB: Continua navegando normalmente na v1.0 (Zero-Downtime)
-    ALB->>ECS: GET /health na v2.0 -> HTTP 500 Internal Server Error!
-    ALB-->>ECS: Reporta Target Unhealthy
-    ECS->>ECS: Circuit Breaker detecta falha repetida e aciona Rollback!
-    ECS->>ECS: Restaura TaskDef :1 (v1.0) como PRIMARY e encerra v2.0
-    ECS-->>GHA: Eventos de falha + Rollback concluído para :1
-    GHA-->>Dev: Exibe log completo do Rollback e falha o Job (Exit Code 1 ❌)
-```
 
 ---
 
