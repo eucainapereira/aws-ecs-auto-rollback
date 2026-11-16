@@ -64,6 +64,7 @@ flowchart TB
     IAM -->|"Push Docker Image"| ECR
     IAM -->|"UpdateService & DescribeServices"| CB
     ECR -->|"Pull Image (assign_public_ip=true)"| ECS
+```
 
 ---
 
