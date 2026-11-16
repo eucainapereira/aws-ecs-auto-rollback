@@ -20,8 +20,9 @@ Em ambientes críticos de produção, um deploy contendo um bug de inicializaç�
 
 ---
 
-## 🏛️ Arquitetura da Solução
+### 1. Topologia de Infraestrutura e Segurança
 
+```mermaid
 flowchart TB
     subgraph GitHub["GitHub Actions CI/CD"]
         GHA_Infra["Workflow 1: Infra Terraform\n(apply / destroy)"]
