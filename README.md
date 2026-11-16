@@ -2,7 +2,7 @@
 
 ![AWS](https://img.shields.io/badge/AWS-ECS%20Fargate%20%7C%20ALB%20%7C%20ECR%20%7C%20DynamoDB-FF9900?style=for-the-badge&logo=amazonaws&logoColor=white)
 ![Terraform](https://img.shields.io/badge/Terraform-IaC%20%3E%3D%201.5-7B42BC?style=for-the-badge&logo=terraform&logoColor=white)
-![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI%2FCD%20%2B%20OIDC-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/CI%2FCD-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
 ![Python FastAPI](https://img.shields.io/badge/Python%203.12-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 
 Projeto prático de engenharia **DevOps / SRE** que demonstra na prática **Zero-Downtime Deployment** e **Rollback Automático em Tempo Real** utilizando **Amazon ECS (Fargate)**, **Application Load Balancer (ALB)**, **Amazon ECR**, **Amazon DynamoDB**, **Terraform** e **GitHub Actions**.
