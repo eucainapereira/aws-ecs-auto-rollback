@@ -5,7 +5,7 @@
 ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI%2FCD%20%2B%20OIDC-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
 ![Python FastAPI](https://img.shields.io/badge/Python%203.12-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 
-Projeto prático de engenharia **DevOps / SRE** que demonstra na prática **Zero-Downtime Deployment** e **Rollback Automático em Tempo Real** utilizando **Amazon ECS (Fargate)**, **Application Load Balancer (ALB)**, **Amazon ECR**, **Amazon DynamoDB**, **Terraform** e **GitHub Actions com autenticação OIDC (sem chaves estáticas)**.
+Projeto prático de engenharia **DevOps / SRE** que demonstra na prática **Zero-Downtime Deployment** e **Rollback Automático em Tempo Real** utilizando **Amazon ECS (Fargate)**, **Application Load Balancer (ALB)**, **Amazon ECR**, **Amazon DynamoDB**, **Terraform** e **GitHub Actions**.
 
 ---
 
